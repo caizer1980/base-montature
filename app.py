@@ -57,6 +57,15 @@ st.markdown(
 
         #MainMenu, footer, header {{visibility: hidden;}}
 
+        /* forza uno sfondo chiaro coerente, indipendentemente dal tema
+           chiaro/scuro del browser di chi visita la pagina */
+        [data-testid="stAppViewContainer"], [data-testid="stApp"], body {{
+            background-color: #faf8f5 !important;
+        }}
+        [data-testid="stMain"], [data-testid="stMainBlockContainer"], .main {{
+            background-color: #faf8f5 !important;
+        }}
+
         .block-container {{
             padding-top: 2rem;
             max-width: 640px;
@@ -70,6 +79,9 @@ st.markdown(
             max-width: 220px;
         }}
 
+        h1, h2, h3, .angiolucci-subtitle, p, span, label, div {{
+            color: #262019;
+        }}
         h1, h2, h3 {{
             font-weight: 500 !important;
             letter-spacing: 0.02em;
@@ -78,12 +90,19 @@ st.markdown(
 
         .angiolucci-subtitle {{
             text-align: center;
-            color: #8a8378;
+            color: #8a8378 !important;
             font-size: 0.95rem;
             letter-spacing: 0.08em;
             text-transform: uppercase;
             margin-top: -0.8rem;
             margin-bottom: 1.5rem;
+        }}
+
+        /* etichette dei campi (Nome utente / Password) ben visibili */
+        div[data-testid="stForm"] label p {{
+            color: #262019 !important;
+            font-weight: 600 !important;
+            font-size: 0.95rem !important;
         }}
 
         div.stButton > button, div.stDownloadButton > button, button[kind="primary"] {{
@@ -101,20 +120,33 @@ st.markdown(
             background-color: {BRAND_COLOR_DARK} !important;
             color: #ffffff !important;
         }}
+        div.stButton > button p, div.stDownloadButton > button p {{
+            color: #ffffff !important;
+        }}
 
         div[data-testid="stForm"] {{
             border: 1px solid #ece7df;
             border-radius: 8px;
-            padding: 2rem 2rem 1rem 2rem;
-            background-color: #fbfaf8;
+            padding: 2rem 2rem 1.5rem 2rem;
+            background-color: #ffffff;
         }}
 
-        input[type="text"], input[type="password"] {{
+        div[data-testid="stTextInput"] input {{
+            background-color: #ffffff !important;
+            color: #262019 !important;
+            border: 1px solid #d8d2c6 !important;
             border-radius: 4px !important;
         }}
 
         div[data-testid="stSidebar"] {{
-            background-color: #fbfaf8;
+            background-color: #fbfaf8 !important;
+        }}
+        div[data-testid="stSidebar"] * {{
+            color: #262019 !important;
+        }}
+
+        div[data-testid="stAlert"] p {{
+            color: inherit !important;
         }}
     </style>
     <div class="angiolucci-logo-wrap">
@@ -178,9 +210,22 @@ def dropbox_download(dbx, dropbox_path, local_path):
         md, res = dbx.files_download(dropbox_path)
         with open(local_path, "wb") as f:
             f.write(res.content)
-        return True
+        return True, None
     except Exception as e:
-        return False
+        return False, str(e)
+
+
+def dropbox_list_parent(dbx, dropbox_path):
+    """Se un file non viene trovato, elenca il contenuto della cartella
+    padre così da capire subito se il nome/percorso e' leggermente diverso."""
+    import posixpath
+    parent = posixpath.dirname(dropbox_path.rstrip("/")) or "/"
+    try:
+        res = dbx.files_list_folder(parent)
+        names = [e.name for e in res.entries]
+        return parent, names
+    except Exception as e:
+        return parent, [f"(impossibile leggere questa cartella: {e})"]
 
 
 def dropbox_upload(dbx, local_path, dropbox_path):
@@ -218,13 +263,19 @@ if st.button("🔄 Genera file di oggi", type="primary"):
 
             missing = []
             for key, info in etl.FILES.items():
-                ok = dropbox_download(dbx, info["dropbox_path"], os.path.join(input_dir, info["local_name"]))
+                ok, err = dropbox_download(dbx, info["dropbox_path"], os.path.join(input_dir, info["local_name"]))
                 if not ok:
-                    missing.append(f'{key}: {info["dropbox_path"]}')
+                    parent, names = dropbox_list_parent(dbx, info["dropbox_path"])
+                    trovati = ", ".join(names) if names else "(cartella vuota o non trovata)"
+                    missing.append(
+                        f'**{key}**: `{info["dropbox_path"]}`\n\n'
+                        f'Errore Dropbox: {err}\n\n'
+                        f'Contenuto trovato in `{parent}`: {trovati}'
+                    )
             if missing:
                 st.error(
-                    "Non riesco a scaricare questi file da Dropbox (controlla percorso/nome):\n"
-                    + "\n".join(missing)
+                    "Non riesco a scaricare questi file da Dropbox:\n\n"
+                    + "\n\n---\n\n".join(missing)
                 )
                 st.stop()
 
