@@ -15,11 +15,16 @@ CONFIGURAZIONE RICHIESTA (vedi GUIDA_DEPLOY.md):
     DROPBOX_APP_KEY = "..."
     DROPBOX_APP_SECRET = "..."
     DROPBOX_REFRESH_TOKEN = "..."
-    DROPBOX_BASE_PATH = "/Export FOCUS DEPOSITO"
+    REF_TABLES_PATH = "/Export FOCUS DEPOSITO/Programma Base Montature/tabelle_riferimento"
 
     [utenti]
     salvo = "password-scelta-da-te"
     collega1 = "altra-password"
+
+I percorsi dei 5 file sorgente (giacenza, listini, sottoscorta, movimenti,
+vendite) sono definiti direttamente in etl_montature.py (dizionario FILES),
+non nei Secrets: cambiano raramente e vivono nel codice per restare
+allineati allo script che li legge.
 """
 import io
 import os
@@ -109,8 +114,10 @@ st.write(
 if st.button("🔄 Genera file di oggi", type="primary"):
     with st.spinner("Scarico i file sorgente da Dropbox..."):
         dbx = get_dropbox_client()
-        base_path = st.secrets.get("DROPBOX_BASE_PATH", "/Export FOCUS DEPOSITO")
-        ref_subpath = base_path + "/Programma Base Montature/tabelle_riferimento"
+        ref_subpath = st.secrets.get(
+            "REF_TABLES_PATH",
+            "/Export FOCUS DEPOSITO/Programma Base Montature/tabelle_riferimento",
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             input_dir = os.path.join(tmp, "input")
@@ -118,10 +125,10 @@ if st.button("🔄 Genera file di oggi", type="primary"):
             os.makedirs(ref_dir, exist_ok=True)
 
             missing = []
-            for key, relpath in etl.FILES.items():
-                ok = dropbox_download(dbx, f"{base_path}/{relpath}", os.path.join(input_dir, relpath))
+            for key, info in etl.FILES.items():
+                ok = dropbox_download(dbx, info["dropbox_path"], os.path.join(input_dir, info["local_name"]))
                 if not ok:
-                    missing.append(relpath)
+                    missing.append(f'{key}: {info["dropbox_path"]}')
             if missing:
                 st.error(
                     "Non riesco a scaricare questi file da Dropbox (controlla percorso/nome):\n"
