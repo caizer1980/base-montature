@@ -15,13 +15,23 @@ USO:
                               --ref-dir "/percorso/tabelle_riferimento" \
                               --output "Base MONTATURE.xlsx"
 
-I file attesi dentro --input-dir (nomi esatti, o modificabili qui sotto in FILES):
-    BASE/Listini MONTATURE 2017.txt
-    BASE/Sottoscorta MONTATURE.txt
-    BASE/Movimenti ACQUISTO.txt
-    BASE/Vendita MONTATURE al 2017.txt              (anno corrente)
-    BASE/Vendita MONTATURE ANNO PRECEDENTE.txt       (anno precedente)
-    RICERCHE BASE/GIACENZA MONTATURE al 2017.txt
+I file sorgente (percorso Dropbox assoluto, vedi dizionario FILES qui sotto):
+    /Export FOCUS DEPOSITO/BASE/Listini MONTATURE 2017.txt
+    /Export FOCUS DEPOSITO/BASE/Sottoscorta MONTATURE.txt
+    /Export FOCUS DEPOSITO/BASE/Movimenti ACQUISTO.txt
+    /Export FOCUS DEPOSITO/RICERCHE BASE/GIACENZA MONTATURE al 2017.txt
+    /Power BI/Dati/VENDUTO/Vendita TUTTI MAGAZZINI.xlsx   (vendite multi-anno,
+                                                            solo righe "VEN")
+
+Nota: dal 14/07/2026 i file vivono su un Dropbox diverso da quello originale
+(un altro PC, aggiornato ogni notte) e le vendite arrivano da un unico export
+Power BI con lo storico di piu' anni, non piu' da due file separati per
+anno corrente/precedente.
+
+--input-dir deve contenere, per ogni voce di FILES, un file con il nome
+indicato in "local_name" (es. giacenza.txt, vendite.xlsx...). E' app.py che si
+occupa di scaricare da Dropbox ogni file al suo "local_name" dentro una
+cartella temporanea prima di chiamare build().
 
 Le tabelle di riferimento "manuali" (colonne che in Access erano compilate a
 mano e non provengono da nessuno dei file quotidiani) vengono lette da
@@ -37,11 +47,12 @@ NOTE / IPOTESI (confermate con Salvo il 14/07/2026):
     NESSUNA vendita negli ultimi due anni solari (anno corrente + anno
     precedente). Es. nel 2026: fuori chi ha giacenza 0 e zero vendite sia nel
     2026 sia nel 2025.
+  - Dal file vendite si conta solo "Tipo operazione" = VEN (non ING).
   - "Quantita Disponibile" = quantita magazzino - quantita prenotata (min 0)
   - "Vendita {ANNO-1} CUMULATO" = vendite anno precedente dal 1/1 fino allo
     stesso giorno/mese di oggi (confronto omogeneo anno su anno)
-  - "Vendita {ANNO-2}" resta vuota: nessuno dei file sorgente contiene dati
-    di due anni fa
+  - "Vendita {ANNO-2}" ora e' calcolata con dati reali (il nuovo file vendite
+    copre piu' anni), prima restava sempre vuota
   - "Filiale BIS" = uguale a "Filiale"
 """
 import argparse
@@ -55,13 +66,36 @@ from collections import defaultdict
 # CONFIGURAZIONE
 # ---------------------------------------------------------------------------
 
+# Ogni file sorgente ha un percorso Dropbox assoluto (da settembre 2026 non
+# sono piu' tutti nella stessa cartella: la giacenza/listini/sottoscorta/
+# movimenti restano in "Export FOCUS DEPOSITO", le vendite arrivano invece da
+# un unico file esportato da Power BI con lo storico di piu' anni).
 FILES = {
-    "giacenza": "RICERCHE BASE/GIACENZA MONTATURE al 2017.txt",
-    "listini": "BASE/Listini MONTATURE 2017.txt",
-    "sottoscorta": "BASE/Sottoscorta MONTATURE.txt",
-    "movimenti": "BASE/Movimenti ACQUISTO.txt",
-    "vendite_corrente": "BASE/Vendita MONTATURE al 2017.txt",
-    "vendite_precedente": "BASE/Vendita MONTATURE ANNO PRECEDENTE.txt",
+    "giacenza": {
+        "dropbox_path": "/Export FOCUS DEPOSITO/RICERCHE BASE/GIACENZA MONTATURE al 2017.txt",
+        "local_name": "giacenza.txt",
+        "format": "tsv",
+    },
+    "listini": {
+        "dropbox_path": "/Export FOCUS DEPOSITO/BASE/Listini MONTATURE 2017.txt",
+        "local_name": "listini.txt",
+        "format": "tsv",
+    },
+    "sottoscorta": {
+        "dropbox_path": "/Export FOCUS DEPOSITO/BASE/Sottoscorta MONTATURE.txt",
+        "local_name": "sottoscorta.txt",
+        "format": "tsv",
+    },
+    "movimenti": {
+        "dropbox_path": "/Export FOCUS DEPOSITO/BASE/Movimenti ACQUISTO.txt",
+        "local_name": "movimenti.txt",
+        "format": "tsv",
+    },
+    "vendite": {
+        "dropbox_path": "/Power BI/Dati/VENDUTO/Vendita TUTTI MAGAZZINI.xlsx",
+        "local_name": "vendite.xlsx",
+        "format": "xlsx",
+    },
 }
 
 # Elenco filiali "vere" da tenere nel file finale (codice -> nome).
@@ -189,7 +223,7 @@ def build(input_dir, ref_dir, today=None):
     year = today.year
 
     def p(key):
-        return os.path.join(input_dir, FILES[key])
+        return os.path.join(input_dir, FILES[key]["local_name"])
 
     print("Lettura GIACENZA (file guida)...", file=sys.stderr)
     idx_g, reader_g, fh_g = iter_tsv(p("giacenza"))
@@ -253,41 +287,56 @@ def build(input_dir, ref_dir, today=None):
             data_ultimo_acquisto[bc] = d
     fh_m.close()
 
-    print("Lettura VENDITE...", file=sys.stderr)
-    vendite_corr = load_tsv(p("vendite_corrente"))
-    vendite_prec = load_tsv(p("vendite_precedente"))
+    print("Lettura VENDITE (file unico multi-anno, solo tipo operazione VEN)...", file=sys.stderr)
+    import openpyxl as _openpyxl
 
     vendite_qta = defaultdict(int)
     vendite_qta_cumulato = defaultdict(int)
     ultima_vendita = {}
 
-    def process_vendite(rows, cumulato=False):
-        for r in rows:
-            bc = r.get("codice a barre")
-            fil = r.get("Filiale")
-            if not bc or not fil:
-                continue
-            d = parse_it_date(r.get("data"))
-            if not d:
-                continue
-            try:
-                qta = int(float((r.get("quantita") or "0").replace(",", ".")))
-            except ValueError:
-                qta = 0
-            key = (bc, fil, d.year)
-            vendite_qta[key] += qta
-            cur = ultima_vendita.get((bc, fil))
-            if cur is None or d > cur:
-                ultima_vendita[(bc, fil)] = d
-            if cumulato and (d.month, d.day) <= (today.month, today.day):
-                vendite_qta_cumulato[(bc, fil)] += qta
-
-    process_vendite(vendite_corr)
-    process_vendite(vendite_prec, cumulato=True)
-
     anno_corrente = year
     anno_precedente = year - 1
     anno_meno2 = year - 2
+
+    wb_v = _openpyxl.load_workbook(p("vendite"), read_only=True, data_only=True)
+    ws_v = wb_v.active
+    rows_v = ws_v.iter_rows(values_only=True)
+    header_v = next(rows_v)
+    idx_v = {name: i for i, name in enumerate(header_v)}
+
+    def vget(row, name):
+        i = idx_v.get(name)
+        if i is None or i >= len(row):
+            return None
+        return row[i]
+
+    n_vendite = 0
+    for row in rows_v:
+        if vget(row, "Tipo operazione") != "VEN":
+            continue
+        bc = vget(row, "Codice a barre")
+        fil = vget(row, "Filiale")
+        if not bc or not fil:
+            continue
+        d = vget(row, "Data")
+        if d is None:
+            continue
+        d = d.date() if hasattr(d, "date") else d
+        raw_qta = vget(row, "Quantità")
+        try:
+            qta = int(raw_qta or 0)
+        except (TypeError, ValueError):
+            qta = 0
+        n_vendite += 1
+        key = (bc, fil, d.year)
+        vendite_qta[key] += qta
+        cur = ultima_vendita.get((bc, fil))
+        if cur is None or d > cur:
+            ultima_vendita[(bc, fil)] = d
+        if d.year == anno_precedente and (d.month, d.day) <= (today.month, today.day):
+            vendite_qta_cumulato[(bc, fil)] += qta
+    wb_v.close()
+    print(f"  righe vendita (VEN) lette: {n_vendite}", file=sys.stderr)
 
     col_vendita_meno2 = f"Vendita {anno_meno2}"
     col_vendita_prec = f"Vendita {anno_precedente}"
@@ -413,7 +462,7 @@ def build(input_dir, ref_dir, today=None):
             "Quantita Disponibile": q_disp,
             "quantita in arrivo": q_arrivo,
             "scorta minima": manual.get("scorta minima", ""),
-            col_vendita_meno2: "",
+            col_vendita_meno2: (vendite_qta.get((barcode, fil_code, anno_meno2)) or ""),
             col_vendita_prec: v_precedente or "",
             col_vendita_prec_cum: vendite_qta_cumulato.get((barcode, fil_code)) or "",
             col_vendita_corr: v_corrente or "",
