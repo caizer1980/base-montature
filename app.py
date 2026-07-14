@@ -35,7 +35,94 @@ import streamlit as st
 
 import etl_montature as etl
 
-st.set_page_config(page_title="Base MONTATURE", page_icon="👓", layout="centered")
+st.set_page_config(page_title="Base MONTATURE | Angiolucci Occhiali", page_icon="👓", layout="centered")
+
+# ---------------------------------------------------------------------------
+# STILE — allineato alla brand identity di angiolucciocchiali.com
+# (colore primario del sito: #c06d49, logo ufficiale, tipografia pulita)
+# ---------------------------------------------------------------------------
+
+ANGIOLUCCI_LOGO = "https://www.angiolucciocchiali.com/cdn/shop/files/anglogo_2_1.png?v=1699797699&width=280"
+BRAND_COLOR = "#c06d49"
+BRAND_COLOR_DARK = "#9c5638"
+
+st.markdown(
+    f"""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600&display=swap');
+
+        html, body, [class*="css"] {{
+            font-family: 'Jost', 'Helvetica Neue', Arial, sans-serif;
+        }}
+
+        #MainMenu, footer, header {{visibility: hidden;}}
+
+        .block-container {{
+            padding-top: 2rem;
+            max-width: 640px;
+        }}
+
+        .angiolucci-logo-wrap {{
+            text-align: center;
+            padding: 0.5rem 0 1.5rem 0;
+        }}
+        .angiolucci-logo-wrap img {{
+            max-width: 220px;
+        }}
+
+        h1, h2, h3 {{
+            font-weight: 500 !important;
+            letter-spacing: 0.02em;
+            color: #262019 !important;
+        }}
+
+        .angiolucci-subtitle {{
+            text-align: center;
+            color: #8a8378;
+            font-size: 0.95rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-top: -0.8rem;
+            margin-bottom: 1.5rem;
+        }}
+
+        div.stButton > button, div.stDownloadButton > button, button[kind="primary"] {{
+            background-color: {BRAND_COLOR} !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 4px !important;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            padding: 0.6rem 1.4rem !important;
+            transition: background-color 0.2s ease-in-out;
+        }}
+        div.stButton > button:hover, div.stDownloadButton > button:hover {{
+            background-color: {BRAND_COLOR_DARK} !important;
+            color: #ffffff !important;
+        }}
+
+        div[data-testid="stForm"] {{
+            border: 1px solid #ece7df;
+            border-radius: 8px;
+            padding: 2rem 2rem 1rem 2rem;
+            background-color: #fbfaf8;
+        }}
+
+        input[type="text"], input[type="password"] {{
+            border-radius: 4px !important;
+        }}
+
+        div[data-testid="stSidebar"] {{
+            background-color: #fbfaf8;
+        }}
+    </style>
+    <div class="angiolucci-logo-wrap">
+        <img src="{ANGIOLUCCI_LOGO}" alt="Angiolucci Occhiali" />
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---------------------------------------------------------------------------
 # LOGIN SEMPLICE
@@ -45,7 +132,8 @@ def check_login():
     if st.session_state.get("logged_in"):
         return True
 
-    st.title("👓 Base MONTATURE — accesso")
+    st.markdown("<h2 style='text-align:center;'>Base MONTATURE</h2>", unsafe_allow_html=True)
+    st.markdown("<p class='angiolucci-subtitle'>Area riservata &middot; accesso</p>", unsafe_allow_html=True)
     with st.form("login"):
         user = st.text_input("Utente")
         pwd = st.text_input("Password", type="password")
@@ -105,7 +193,11 @@ def dropbox_upload(dbx, local_path, dropbox_path):
 # GENERAZIONE FILE
 # ---------------------------------------------------------------------------
 
-st.title("👓 Base MONTATURE")
+st.markdown("<h2 style='text-align:center;'>Base MONTATURE</h2>", unsafe_allow_html=True)
+st.markdown(
+    "<p class='angiolucci-subtitle'>Giacenza &middot; vendite &middot; listini &middot; movimenti</p>",
+    unsafe_allow_html=True,
+)
 st.write(
     "Genera il file aggiornato a oggi leggendo giacenza, vendite, listini e "
     "movimenti direttamente dalla cartella Dropbox."
