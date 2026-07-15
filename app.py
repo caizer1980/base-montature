@@ -195,6 +195,22 @@ st.markdown(
 # ---------------------------------------------------------------------------
 
 RUOLI_AUTORIZZATI = {"RESPONSABILE"}
+PORTAL_URL = "https://portale-angiolucci.s-molino.workers.dev"
+
+
+def lookup_user(codice):
+    """Legge una riga della tabella 'utenti' (Supabase) di Trasferimenti,
+    la stessa usata dal portale e da tutte le app collegate."""
+    url = st.secrets["SUPABASE_URL"].rstrip("/") + "/rest/v1/utenti"
+    headers = {
+        "apikey": st.secrets["SUPABASE_ANON_KEY"],
+        "Authorization": f"Bearer {st.secrets['SUPABASE_ANON_KEY']}",
+    }
+    params = {"select": "cod,nome,ruolo,pwd", "cod": f"eq.{codice}"}
+    resp = requests.get(url, headers=headers, params=params, timeout=10)
+    resp.raise_for_status()
+    rows = resp.json()
+    return rows[0] if rows else None
 
 
 def verify_credentials(codice, password):
@@ -205,27 +221,49 @@ def verify_credentials(codice, password):
     if not codice or not password:
         return None, "Inserisci utente e password."
 
-    url = st.secrets["SUPABASE_URL"].rstrip("/") + "/rest/v1/utenti"
-    headers = {
-        "apikey": st.secrets["SUPABASE_ANON_KEY"],
-        "Authorization": f"Bearer {st.secrets['SUPABASE_ANON_KEY']}",
-    }
-    params = {"select": "cod,nome,ruolo,pwd", "cod": f"eq.{codice}"}
     try:
-        resp = requests.get(url, headers=headers, params=params, timeout=10)
-        resp.raise_for_status()
-        rows = resp.json()
+        row = lookup_user(codice)
     except Exception:
         return None, "Errore di connessione al sistema di autenticazione. Riprova."
 
-    if not rows or rows[0].get("pwd") != password:
+    if not row or row.get("pwd") != password:
         return None, "Utente o password non corretti."
 
-    row = rows[0]
     if row.get("ruolo") not in RUOLI_AUTORIZZATI:
         return None, "Il tuo account non ha i permessi per accedere a Base MONTATURE."
 
     return row, None
+
+
+def try_sso_login():
+    """Se la pagina e' stata aperta dal portale Angiolucci (link con
+    ?sso=token), verifica il token presso il portale stesso e, se valido,
+    autentica automaticamente senza richiedere di nuovo le credenziali."""
+    if st.session_state.get("logged_in"):
+        return
+    token = st.query_params.get("sso")
+    if not token:
+        return
+    try:
+        resp = requests.get(f"{PORTAL_URL}/api/verify", params={"token": token}, timeout=10)
+        data = resp.json()
+    except Exception:
+        return
+    if not data.get("ok"):
+        return
+    codice = (data.get("codice") or "").strip().upper()
+    if not codice:
+        return
+    try:
+        row = lookup_user(codice)
+    except Exception:
+        return
+    if not row or row.get("ruolo") not in RUOLI_AUTORIZZATI:
+        return
+    st.session_state["logged_in"] = True
+    st.session_state["utente"] = row.get("nome") or row.get("cod")
+    st.query_params.clear()
+    st.rerun()
 
 
 def check_login():
@@ -249,6 +287,8 @@ def check_login():
             st.error(err)
     return False
 
+
+try_sso_login()
 
 if not check_login():
     st.stop()
