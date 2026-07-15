@@ -3,11 +3,16 @@
 """
 app.py - Pagina web per generare e scaricare il file "Base MONTATURE"
 =======================================================================
-Applicazione Streamlit con login. Le persone autorizzate (elenco in
-st.secrets) accedono con utente/password, premono un pulsante e ottengono
-il file Excel aggiornato ad oggi, generato al volo dai file che si trovano
-nella cartella Dropbox condivisa (letti tramite l'API di Dropbox, quindi
-funziona anche se l'app gira su un server remoto e non sul tuo PC).
+Applicazione Streamlit con login. Il login NON ha un elenco utenti proprio:
+si appoggia allo stesso database (Supabase, tabella "utenti") usato dalla
+pagina Trasferimenti (trasferimenti-angiolucci.s-molino.workers.dev), cosi'
+un cambio password fatto li' vale automaticamente anche qui. L'accesso e'
+limitato a chi ha ruolo RESPONSABILE nella tabella.
+
+Una volta dentro, si preme un pulsante e si ottiene il file Excel aggiornato
+ad oggi, generato al volo dai file che si trovano nella cartella Dropbox
+condivisa (letti tramite l'API di Dropbox, quindi funziona anche se l'app
+gira su un server remoto e non sul tuo PC).
 
 CONFIGURAZIONE RICHIESTA (vedi GUIDA_DEPLOY.md):
     In Streamlit Community Cloud -> Settings -> Secrets, incollare:
@@ -16,10 +21,8 @@ CONFIGURAZIONE RICHIESTA (vedi GUIDA_DEPLOY.md):
     DROPBOX_APP_SECRET = "..."
     DROPBOX_REFRESH_TOKEN = "..."
     REF_TABLES_PATH = "/Export FOCUS DEPOSITO/Programma Base Montature/tabelle_riferimento"
-
-    [utenti]
-    salvo = "password-scelta-da-te"
-    collega1 = "altra-password"
+    SUPABASE_URL = "https://iogruyberpruzcgvngkh.supabase.co"
+    SUPABASE_ANON_KEY = "..."
 
 I percorsi dei 5 file sorgente (giacenza, listini, sottoscorta, movimenti,
 vendite) sono definiti direttamente in etl_montature.py (dizionario FILES),
@@ -31,6 +34,7 @@ import os
 import tempfile
 import datetime as dt
 
+import requests
 import streamlit as st
 
 import etl_montature as etl
@@ -187,8 +191,42 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
-# LOGIN SEMPLICE
+# LOGIN — stessa tabella "utenti" di Trasferimenti (Supabase)
 # ---------------------------------------------------------------------------
+
+RUOLI_AUTORIZZATI = {"RESPONSABILE"}
+
+
+def verify_credentials(codice, password):
+    """Verifica codice+password interrogando la stessa tabella 'utenti' usata
+    da Trasferimenti: un cambio password fatto li' vale automaticamente anche
+    qui. L'accesso e' concesso solo a chi ha un ruolo in RUOLI_AUTORIZZATI."""
+    codice = (codice or "").strip().upper()
+    if not codice or not password:
+        return None, "Inserisci utente e password."
+
+    url = st.secrets["SUPABASE_URL"].rstrip("/") + "/rest/v1/utenti"
+    headers = {
+        "apikey": st.secrets["SUPABASE_ANON_KEY"],
+        "Authorization": f"Bearer {st.secrets['SUPABASE_ANON_KEY']}",
+    }
+    params = {"select": "cod,nome,ruolo,pwd", "cod": f"eq.{codice}"}
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        resp.raise_for_status()
+        rows = resp.json()
+    except Exception:
+        return None, "Errore di connessione al sistema di autenticazione. Riprova."
+
+    if not rows or rows[0].get("pwd") != password:
+        return None, "Utente o password non corretti."
+
+    row = rows[0]
+    if row.get("ruolo") not in RUOLI_AUTORIZZATI:
+        return None, "Il tuo account non ha i permessi per accedere a Base MONTATURE."
+
+    return row, None
+
 
 def check_login():
     if st.session_state.get("logged_in"):
@@ -197,18 +235,18 @@ def check_login():
     st.markdown("<h2 style='text-align:center;'>Base MONTATURE</h2>", unsafe_allow_html=True)
     st.markdown("<p class='angiolucci-subtitle'>Area riservata &middot; accesso</p>", unsafe_allow_html=True)
     with st.form("login"):
-        user = st.text_input("Utente")
+        user = st.text_input("Codice utente")
         pwd = st.text_input("Password", type="password")
         ok = st.form_submit_button("Entra")
 
     if ok:
-        utenti = st.secrets.get("utenti", {})
-        if user in utenti and pwd == utenti[user]:
+        row, err = verify_credentials(user, pwd)
+        if row:
             st.session_state["logged_in"] = True
-            st.session_state["utente"] = user
+            st.session_state["utente"] = row.get("nome") or row.get("cod")
             st.rerun()
         else:
-            st.error("Utente o password non corretti.")
+            st.error(err)
     return False
 
 
