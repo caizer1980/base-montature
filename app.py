@@ -153,6 +153,21 @@ st.markdown(
             border-radius: 4px !important;
         }}
 
+        /* icona mostra/nascondi password: discreta invece di quadrato nero */
+        div[data-testid="stTextInput"] button,
+        [data-testid="stTextInputRevealButton"],
+        div[data-testid="stTextInput"] [data-testid*="RevealButton"] {{
+            background-color: #ffffff !important;
+            border: none !important;
+            border-left: 1px solid #d8d2c6 !important;
+            border-radius: 0 4px 4px 0 !important;
+        }}
+        div[data-testid="stTextInput"] button svg,
+        [data-testid="stTextInputRevealButton"] svg {{
+            fill: #8a8378 !important;
+            color: #8a8378 !important;
+        }}
+
         div[data-testid="stSidebar"] {{
             background-color: #fbfaf8 !important;
         }}
