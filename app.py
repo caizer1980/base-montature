@@ -105,7 +105,14 @@ st.markdown(
             font-size: 0.95rem !important;
         }}
 
-        div.stButton > button, div.stDownloadButton > button, button[kind="primary"] {{
+        div.stButton > button,
+        div.stDownloadButton > button,
+        div[data-testid="stButton"] button,
+        div[data-testid="stDownloadButton"] button,
+        div[data-testid="stFormSubmitButton"] button,
+        button[kind="primary"],
+        button[kind="primaryFormSubmit"],
+        button[kind="secondaryFormSubmit"] {{
             background-color: {BRAND_COLOR} !important;
             color: #ffffff !important;
             border: none !important;
@@ -116,11 +123,19 @@ st.markdown(
             padding: 0.6rem 1.4rem !important;
             transition: background-color 0.2s ease-in-out;
         }}
-        div.stButton > button:hover, div.stDownloadButton > button:hover {{
+        div.stButton > button:hover,
+        div.stDownloadButton > button:hover,
+        div[data-testid="stButton"] button:hover,
+        div[data-testid="stDownloadButton"] button:hover,
+        div[data-testid="stFormSubmitButton"] button:hover {{
             background-color: {BRAND_COLOR_DARK} !important;
             color: #ffffff !important;
         }}
-        div.stButton > button p, div.stDownloadButton > button p {{
+        div.stButton > button p,
+        div.stDownloadButton > button p,
+        div[data-testid="stButton"] button p,
+        div[data-testid="stDownloadButton"] button p,
+        div[data-testid="stFormSubmitButton"] button p {{
             color: #ffffff !important;
         }}
 
@@ -216,16 +231,24 @@ def dropbox_download(dbx, dropbox_path, local_path):
 
 
 def dropbox_list_parent(dbx, dropbox_path):
-    """Se un file non viene trovato, elenca il contenuto della cartella
-    padre così da capire subito se il nome/percorso e' leggermente diverso."""
+    """Se un file non viene trovato, risale le cartelle finché non trova
+    quella più vicina che esiste davvero e ne elenca il contenuto: così si
+    capisce a che livello il percorso configurato si discosta da quello
+    reale nell'account Dropbox collegato."""
     import posixpath
-    parent = posixpath.dirname(dropbox_path.rstrip("/")) or "/"
-    try:
-        res = dbx.files_list_folder(parent)
-        names = [e.name for e in res.entries]
-        return parent, names
-    except Exception as e:
-        return parent, [f"(impossibile leggere questa cartella: {e})"]
+    path = dropbox_path.rstrip("/")
+    last_err = None
+    while True:
+        parent = posixpath.dirname(path) or "/"
+        try:
+            res = dbx.files_list_folder(parent)
+            names = [e.name for e in res.entries]
+            return parent, names
+        except Exception as e:
+            last_err = e
+            if parent == "/" or parent == path:
+                return parent, [f"(impossibile leggere anche la cartella radice: {last_err})"]
+            path = parent
 
 
 def dropbox_upload(dbx, local_path, dropbox_path):
