@@ -194,7 +194,7 @@ st.markdown(
 # LOGIN — stessa tabella "utenti" di Trasferimenti (Supabase)
 # ---------------------------------------------------------------------------
 
-RUOLI_AUTORIZZATI = {"RESPONSABILE"}
+RUOLI_AUTORIZZATI = {"RESPONSABILE", "AMMINISTRATORE"}
 PORTAL_URL = "https://portale-angiolucci.s-molino.workers.dev"
 
 
