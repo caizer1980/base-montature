@@ -66,11 +66,24 @@ NOTE / IPOTESI (confermate con Salvo il 14/07/2026):
   - "Vendita {ANNO-2}" ora e' calcolata con dati reali (il nuovo file vendite
     copre piu' anni), prima restava sempre vuota
   - "Filiale BIS" = uguale a "Filiale"
+
+REGOLE FISSE (confermate con Salvo il 17/07/2026):
+  - "Fornitore 2" (colonna B) = "KERING EYEWEAR" quando Marchio e'
+    esattamente "CARTIER" (non da tabella manuale, sovrascrive la tabella).
+  - Quando Marchio e' esattamente "Ray-Ban", dal "modello" vengono tolte le
+    parole SOLE, VISTA, SUN, OPTICAL (senza lasciare lo spazio prima), PRIMA
+    di calcolare le colonne G/H/I ("Modello + Colore + Calibro..."). Altri
+    marchi simili (es. "Ray-Ban Junior", "Ray-ban Meta") non sono toccati.
+  - "data ult acquisto" (colonna AA) = presa direttamente dal campo
+    "data ult. acquisto" della GIACENZA (non piu' calcolata da MOVIMENTI).
+  - "data" (colonna AB) = calcolata da MOVIMENTI ACQUISTO.txt come data piu'
+    recente (tipo operazione = ACQ) per lo stesso codice a barre.
 """
 import argparse
 import csv
 import datetime as dt
 import os
+import re
 import sys
 from collections import defaultdict
 
@@ -234,6 +247,26 @@ def load_brand_set(path):
     return brands
 
 
+# Parole da rimuovere dal "modello" quando il Marchio e' esattamente Ray-Ban
+# (regola fissa, non da tabella manuale). Si rimuove anche lo spazio che le
+# precede, ovunque compaiano nella stringa (di solito in coda, es. "2001 SOLE").
+_RAYBAN_STRIP_WORDS = ("SOLE", "VISTA", "SUN", "OPTICAL")
+_RAYBAN_STRIP_RE = re.compile(r"\s*\b(?:" + "|".join(_RAYBAN_STRIP_WORDS) + r")\b", re.IGNORECASE)
+
+
+def clean_modello_rayban(marchio, modello):
+    """Se il Marchio e' esattamente 'Ray-Ban', toglie da 'modello' le parole
+    SOLE, VISTA, SUN, OPTICAL (senza lasciare lo spazio prima). Per gli altri
+    marchi (es. 'Ray-Ban Junior', 'Ray-ban Meta') il modello resta invariato."""
+    if not modello:
+        return modello
+    if (marchio or "").strip() != "Ray-Ban":
+        return modello
+    cleaned = _RAYBAN_STRIP_RE.sub("", modello)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
 # ---------------------------------------------------------------------------
 # COSTRUZIONE DEL FILE
 # ---------------------------------------------------------------------------
@@ -295,7 +328,8 @@ def build(input_dir, ref_dir, today=None):
     fh_s.close()
 
     print("Lettura MOVIMENTI ACQUISTO (solo barcode rilevanti)...", file=sys.stderr)
-    data_primo_acquisto = {}
+    # Colonna "data" (AB) = data piu' recente di acquisto per codice a barre,
+    # calcolata da MOVIMENTI ACQUISTO.txt (solo tipo operazione = ACQ).
     data_ultimo_acquisto = {}
     idx_m, reader_m, fh_m = iter_tsv(p("movimenti"))
     for row in reader_m:
@@ -307,8 +341,6 @@ def build(input_dir, ref_dir, today=None):
         d = parse_it_date(get(row, idx_m, "data"))
         if not d:
             continue
-        if bc not in data_primo_acquisto or d < data_primo_acquisto[bc]:
-            data_primo_acquisto[bc] = d
         if bc not in data_ultimo_acquisto or d > data_ultimo_acquisto[bc]:
             data_ultimo_acquisto[bc] = d
     fh_m.close()
@@ -377,7 +409,11 @@ def build(input_dir, ref_dir, today=None):
     new_fornitori = [0]
     new_articoli = [0]
 
-    def get_fornitore2(fornitore):
+    def get_fornitore2(fornitore, marchio):
+        # Regola fissa (non da tabella manuale): il marchio CARTIER e'
+        # sempre distribuito da Kering Eyewear.
+        if marchio == "CARTIER":
+            return "KERING EYEWEAR"
         row = ref_fornitore2.get(fornitore)
         if row is None:
             ref_fornitore2[fornitore] = {"fornitore": fornitore, "Fornitore 2": ""}
@@ -425,6 +461,10 @@ def build(input_dir, ref_dir, today=None):
         fornitore = get(grow, idx_g, "fornitore")
         tipo_lenti = get(grow, idx_g, "Tipo Lenti")
 
+        # Ray-Ban: rimuovi SOLE/VISTA/SUN/OPTICAL dal modello PRIMA di
+        # costruire le colonne G/H/I (che usano "modello").
+        modello = clean_modello_rayban(marchio, modello)
+
         parts_cat = [x for x in (modello, colore, calibro, categoria) if x]
         parts_no_cat = [x for x in (modello, colore, calibro) if x]
         parts_col_cal = [x for x in (colore, calibro) if x]
@@ -469,7 +509,7 @@ def build(input_dir, ref_dir, today=None):
 
         row = {
             "fornitore": fornitore,
-            "Fornitore 2": get_fornitore2(fornitore),
+            "Fornitore 2": get_fornitore2(fornitore, marchio),
             "Marchio": marchio,
             "modello": modello,
             "Modello CARTIER": modello if marchio == "CARTIER" else "",
@@ -494,8 +534,8 @@ def build(input_dir, ref_dir, today=None):
             col_vendita_prec: v_precedente or "",
             col_vendita_prec_cum: vendite_qta_cumulato.get((barcode, fil_code)) or "",
             col_vendita_corr: v_corrente or "",
-            "data ult acquisto": data_ultimo_acquisto.get(barcode),
-            "data": data_primo_acquisto.get(barcode),
+            "data ult acquisto": parse_it_date(get(grow, idx_g, "data ult. acquisto")),
+            "data": data_ultimo_acquisto.get(barcode),
             "data ult vendita": ultima_vendita.get((barcode, fil_code)),
             "Categoria Filtro": categoria,
             "POSIZIONE GRIGLIA": manual.get("POSIZIONE GRIGLIA", ""),
