@@ -38,6 +38,7 @@ import requests
 import streamlit as st
 
 import etl_montature as etl
+import patch_template as pt
 
 st.set_page_config(page_title="Base MONTATURE | Angiolucci Occhiali", page_icon="👓", layout="centered")
 
@@ -354,6 +355,57 @@ def dropbox_upload(dbx, local_path, dropbox_path):
 # GENERAZIONE FILE
 # ---------------------------------------------------------------------------
 
+REF_FILES = ("ref_fornitore2.csv", "ref_marchi_attivi_sole.csv", "ref_marchi_attivi_vista.csv", "ref_articolo_manuale.csv")
+
+
+def build_montature_rows(dbx):
+    """Scarica i file sorgente e le tabelle di riferimento da Dropbox, fa
+    girare l'ETL e ritorna (columns, rows). Usata sia dal bottone principale
+    sia dai bottoni BASE ALDO / BASE ANDREA, cosi' tutti partono dagli
+    stessi identici dati del giorno."""
+    ref_subpath = st.secrets.get(
+        "REF_TABLES_PATH",
+        "/Export FOCUS DEPOSITO/Programma Base Montature/tabelle_riferimento",
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        input_dir = os.path.join(tmp, "input")
+        ref_dir = os.path.join(tmp, "ref")
+        os.makedirs(ref_dir, exist_ok=True)
+
+        missing = []
+        for key, info in etl.FILES.items():
+            ok, err = dropbox_download(dbx, info["dropbox_path"], os.path.join(input_dir, info["local_name"]))
+            if not ok:
+                parent, names = dropbox_list_parent(dbx, info["dropbox_path"])
+                trovati = ", ".join(names) if names else "(cartella vuota o non trovata)"
+                missing.append(
+                    f'**{key}**: `{info["dropbox_path"]}`\n\n'
+                    f'Errore Dropbox: {err}\n\n'
+                    f'Contenuto trovato in `{parent}`: {trovati}'
+                )
+        if missing:
+            st.error(
+                "Non riesco a scaricare questi file da Dropbox:\n\n"
+                + "\n\n---\n\n".join(missing)
+            )
+            st.stop()
+
+        # tabelle di riferimento: se non esistono ancora su Dropbox, si
+        # creano vuote al primo avvio (build() le popola comunque)
+        for fname in REF_FILES:
+            dropbox_download(dbx, f"{ref_subpath}/{fname}", os.path.join(ref_dir, fname))
+
+        columns, rows = etl.build(input_dir, ref_dir)
+
+        for fname in REF_FILES:
+            local = os.path.join(ref_dir, fname)
+            if os.path.exists(local):
+                dropbox_upload(dbx, local, f"{ref_subpath}/{fname}")
+
+    return columns, rows
+
+
 st.markdown("<h2 style='text-align:center;'>Base MONTATURE</h2>", unsafe_allow_html=True)
 st.markdown(
     "<p class='angiolucci-subtitle'>Giacenza &middot; vendite &middot; listini &middot; movimenti</p>",
@@ -367,57 +419,18 @@ st.write(
 if st.button("🔄 Genera file di oggi", type="primary"):
     with st.spinner("Scarico i file sorgente da Dropbox..."):
         dbx = get_dropbox_client()
-        ref_subpath = st.secrets.get(
-            "REF_TABLES_PATH",
-            "/Export FOCUS DEPOSITO/Programma Base Montature/tabelle_riferimento",
-        )
 
+    with st.spinner("Genero il file (può richiedere qualche minuto)..."):
+        columns, rows = build_montature_rows(dbx)
         with tempfile.TemporaryDirectory() as tmp:
-            input_dir = os.path.join(tmp, "input")
-            ref_dir = os.path.join(tmp, "ref")
-            os.makedirs(ref_dir, exist_ok=True)
-
-            missing = []
-            for key, info in etl.FILES.items():
-                ok, err = dropbox_download(dbx, info["dropbox_path"], os.path.join(input_dir, info["local_name"]))
-                if not ok:
-                    parent, names = dropbox_list_parent(dbx, info["dropbox_path"])
-                    trovati = ", ".join(names) if names else "(cartella vuota o non trovata)"
-                    missing.append(
-                        f'**{key}**: `{info["dropbox_path"]}`\n\n'
-                        f'Errore Dropbox: {err}\n\n'
-                        f'Contenuto trovato in `{parent}`: {trovati}'
-                    )
-            if missing:
-                st.error(
-                    "Non riesco a scaricare questi file da Dropbox:\n\n"
-                    + "\n\n---\n\n".join(missing)
-                )
-                st.stop()
-
-            # tabelle di riferimento: se non esistono ancora su Dropbox, si
-            # creano vuote al primo avvio (build() le popola comunque)
-            for fname in ("ref_fornitore2.csv", "ref_marchi_attivi_sole.csv", "ref_marchi_attivi_vista.csv", "ref_articolo_manuale.csv"):
-                dropbox_download(dbx, f"{ref_subpath}/{fname}", os.path.join(ref_dir, fname))
-
-            with st.spinner("Genero il file (può richiedere qualche minuto)..."):
-                columns, rows = etl.build(input_dir, ref_dir)
-                out_path = os.path.join(tmp, "Base_MONTATURE.xlsx")
-                etl.write_xlsx(columns, rows, out_path)
-
-            with st.spinner("Salvo le tabelle di riferimento aggiornate su Dropbox..."):
-                for fname in ("ref_fornitore2.csv", "ref_marchi_attivi_sole.csv", "ref_marchi_attivi_vista.csv", "ref_articolo_manuale.csv"):
-                    local = os.path.join(ref_dir, fname)
-                    if os.path.exists(local):
-                        dropbox_upload(dbx, local, f"{ref_subpath}/{fname}")
-
+            out_path = os.path.join(tmp, "Base_MONTATURE.xlsx")
+            etl.write_xlsx(columns, rows, out_path)
             with open(out_path, "rb") as f:
                 data = f.read()
 
-            st.session_state["file_data"] = data
-            st.session_state["file_rows"] = len(rows)
-            st.session_state["file_time"] = dt.datetime.now().strftime("%d/%m/%Y %H:%M")
-
+    st.session_state["file_data"] = data
+    st.session_state["file_rows"] = len(rows)
+    st.session_state["file_time"] = dt.datetime.now().strftime("%d/%m/%Y %H:%M")
     st.success(f"File generato: {st.session_state['file_rows']} righe.")
 
 if "file_data" in st.session_state:
@@ -427,3 +440,84 @@ if "file_data" in st.session_state:
         file_name=f"Base MONTATURE al {dt.date.today().strftime('%d %B %Y')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+# ---------------------------------------------------------------------------
+# BASE ALDO / BASE ANDREA — aggiornano solo i dati (righe 2 in poi) del tab
+# "Base" dei rispettivi file modello (con tabelle pivot gia' costruite),
+# lasciando invariati intestazioni, altri fogli, pivot e (per Andrea) le
+# macro VBA. Le tabelle pivot vengono impostate per aggiornarsi da sole la
+# prima volta che il file viene aperto in Excel (refreshOnLoad).
+# ---------------------------------------------------------------------------
+
+TEMPLATE_DIR = "/Export FOCUS DEPOSITO/Template Basi"
+TEMPLATES = {
+    "aldo": {
+        "label": "BASE ALDO",
+        "template_file": "Base Aldo MONTATURE.xlsx",
+        "out_prefix": "Base Aldo MONTATURE",
+        "ext": "xlsx",
+        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    },
+    "andrea": {
+        "label": "BASE ANDREA",
+        "template_file": "Base Andrea MONTATURE.xlsm",
+        "out_prefix": "Base Andrea MONTATURE",
+        "ext": "xlsm",
+        "mime": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    },
+}
+
+st.markdown("<h2 style='text-align:center;'>Base Aldo &middot; Base Andrea</h2>", unsafe_allow_html=True)
+st.write(
+    "Aggiorna il tab \"Base\" dei file modello con i dati di oggi (stesse "
+    "colonne A-AS, cambia solo il numero di righe), lasciando invariati "
+    "intestazioni, gli altri fogli e le tabelle pivot. Le pivot si "
+    "ricalcolano da sole la prima volta che apri il file in Excel."
+)
+
+col_aldo, col_andrea = st.columns(2)
+cliccati = {
+    "aldo": col_aldo.button(TEMPLATES["aldo"]["label"], type="primary"),
+    "andrea": col_andrea.button(TEMPLATES["andrea"]["label"], type="primary"),
+}
+
+for key, clicked in cliccati.items():
+    if not clicked:
+        continue
+    cfg = TEMPLATES[key]
+    dbx = get_dropbox_client()
+    with tempfile.TemporaryDirectory() as tmp:
+        template_local = os.path.join(tmp, cfg["template_file"])
+        with st.spinner(f"Scarico il modello {cfg['label']} da Dropbox..."):
+            ok, err = dropbox_download(dbx, f"{TEMPLATE_DIR}/{cfg['template_file']}", template_local)
+            if not ok:
+                st.error(f"Non riesco a scaricare il modello da Dropbox: {err}")
+                st.stop()
+
+        with st.spinner("Genero i dati aggiornati (può richiedere qualche minuto)..."):
+            columns, rows = build_montature_rows(dbx)
+
+        out_name = f"{cfg['out_prefix']} {dt.date.today().strftime('%Y_%m_%d')}.{cfg['ext']}"
+        out_local = os.path.join(tmp, out_name)
+        with st.spinner("Aggiorno il tab Base e le tabelle pivot..."):
+            pt.patch_workbook(template_local, columns, rows, out_local)
+
+        with st.spinner(f"Salvo {out_name} su Dropbox..."):
+            dropbox_upload(dbx, out_local, f"{TEMPLATE_DIR}/{out_name}")
+
+        with open(out_local, "rb") as f:
+            data = f.read()
+
+    st.session_state[f"file_data_{key}"] = data
+    st.session_state[f"file_name_{key}"] = out_name
+    st.success(f"{cfg['label']} aggiornato: {len(rows)} righe. Salvato su Dropbox come {out_name}.")
+
+for key, cfg in TEMPLATES.items():
+    if f"file_data_{key}" in st.session_state:
+        st.download_button(
+            label=f"⬇️ Scarica {cfg['label']} ({st.session_state[f'file_name_{key}']})",
+            data=st.session_state[f"file_data_{key}"],
+            file_name=st.session_state[f"file_name_{key}"],
+            mime=cfg["mime"],
+            key=f"download_{key}",
+        )
