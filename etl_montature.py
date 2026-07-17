@@ -88,6 +88,8 @@ REGOLE FISSE (confermate con Salvo il 17/07/2026):
     "SI" solo se Tipo Lenti = VISTA e la colonna G ("Modello + Colore +
     Calibro + CAT", gia' costruita a quel punto) contiene la parola CLIP
     (anche insieme ad altre parole, es. "CLIP-ON"), altrimenti vuoto.
+  - Sconto Acquisto (AN) e Sconto Vendita (AO) = valori interi arrotondati
+    (nessun decimale). Fattore di RICARICO (AP) = arrotondato a un decimale.
 """
 import argparse
 import csv
@@ -503,17 +505,19 @@ def build(input_dir, ref_dir, today=None):
         prezzo_acq_scheda = parse_it_number(get(grow, idx_g, "prezzo acquisto"))
         prezzo_ven_scheda = parse_it_number(get(grow, idx_g, "prezzo di vendita"))
 
+        # AN/AO: valori interi arrotondati (nessun decimale).
         sconto_acq = None
         if prezzo_acq_listino:
             base = prezzo_acq_scheda if prezzo_acq_scheda is not None else prezzo_acq_listino
-            sconto_acq = round(100 * (1 - base / prezzo_acq_listino), 6)
+            sconto_acq = round(100 * (1 - base / prezzo_acq_listino))
         sconto_ven = None
         if prezzo_ven_listino:
             base = prezzo_ven_scheda if prezzo_ven_scheda is not None else prezzo_ven_listino
-            sconto_ven = round(100 * (1 - base / prezzo_ven_listino), 6)
+            sconto_ven = round(100 * (1 - base / prezzo_ven_listino))
+        # AP: un solo decimale.
         ricarico = None
         if prezzo_acq_scheda:
-            ricarico = round((prezzo_ven_scheda or 0) / prezzo_acq_scheda, 6)
+            ricarico = round((prezzo_ven_scheda or 0) / prezzo_acq_scheda, 1)
 
         def to_int(s):
             try:
