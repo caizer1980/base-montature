@@ -84,6 +84,10 @@ REGOLE FISSE (confermate con Salvo il 17/07/2026):
     sottoscorta). Sconto Acquisto (AN), Sconto Vendita (AO) e Fattore di
     RICARICO (AP), che usano questi due valori come base, seguono di
     conseguenza gli stessi nuovi prezzi.
+  - "Occhiali con CLIP" (colonna AH) NON e' piu' una tabella manuale:
+    "SI" solo se Tipo Lenti = VISTA e la colonna G ("Modello + Colore +
+    Calibro + CAT", gia' costruita a quel punto) contiene la parola CLIP
+    (anche insieme ad altre parole, es. "CLIP-ON"), altrimenti vuoto.
 """
 import argparse
 import csv
@@ -271,6 +275,18 @@ def clean_modello_rayban(marchio, modello):
     cleaned = _RAYBAN_STRIP_RE.sub("", modello)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
+
+
+def get_occhiali_clip(tipo_lenti, colonna_g):
+    """Colonna AH ('Occhiali con CLIP'): 'SI' solo se Tipo Lenti = VISTA e la
+    colonna G ('Modello + Colore + Calibro + CAT', gia' costruita) contiene
+    la parola CLIP, anche insieme ad altre parole (es. 'CLIP-ON'). Calcolata
+    DOPO aver costruito la colonna G."""
+    if (tipo_lenti or "").strip().upper() != "VISTA":
+        return ""
+    if "CLIP" in (colonna_g or "").upper():
+        return "SI"
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +491,10 @@ def build(input_dir, ref_dir, today=None):
         parts_no_cat = [x for x in (modello, colore, calibro) if x]
         parts_col_cal = [x for x in (colore, calibro) if x]
 
+        # Colonna G, costruita subito per poterla usare come base per la
+        # colonna AH (Occhiali con CLIP).
+        col_g_value = "; ".join(parts_cat)
+
         prezzo_acq_listino = parse_it_number(li.get("prezzo acquisto"))
         prezzo_ven_listino = parse_it_number(li.get("prezzo di vendita"))
         # AJ/AK (e i calcoli a valle Sconto Acquisto/Sconto Vendita/Fattore di
@@ -523,7 +543,7 @@ def build(input_dir, ref_dir, today=None):
             "modello": modello,
             "Modello CARTIER": modello if marchio == "CARTIER" else "",
             "SKU": li.get("SKU") or so.get("SKU") or "",
-            "Modello + Colore + Calibro + CAT": "; ".join(parts_cat),
+            "Modello + Colore + Calibro + CAT": col_g_value,
             "Modello + Colore + Calibro": "; ".join(parts_no_cat),
             "Colore + Calibro": "; ".join(parts_col_cal),
             "colore": colore,
@@ -550,7 +570,7 @@ def build(input_dir, ref_dir, today=None):
             "POSIZIONE GRIGLIA": manual.get("POSIZIONE GRIGLIA", ""),
             "Top": manual.get("Top", ""),
             "Marchi Attivi": get_marchi_attivi(marchio, tipo_lenti),
-            "Occhiali con CLIP": manual.get("Occhiali con CLIP", ""),
+            "Occhiali con CLIP": get_occhiali_clip(tipo_lenti, col_g_value),
             "Personale": manual.get("Personale", ""),
             "Prezzo Di Acquisto Scheda Scontato": prezzo_acq_scheda,
             "Prezzo Di Vendita Scheda Scontato": prezzo_ven_scheda,
