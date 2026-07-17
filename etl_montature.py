@@ -78,6 +78,12 @@ REGOLE FISSE (confermate con Salvo il 17/07/2026):
     "data ult. acquisto" della GIACENZA (non piu' calcolata da MOVIMENTI).
   - "data" (colonna AB) = calcolata da MOVIMENTI ACQUISTO.txt come data piu'
     recente (tipo operazione = ACQ) per lo stesso codice a barre.
+  - "Prezzo Di Acquisto Scheda Scontato" (colonna AJ) e "Prezzo Di Vendita
+    Scheda Scontato" (colonna AK) = presi direttamente dai campi "prezzo
+    acquisto" e "prezzo di vendita" della GIACENZA (non piu' dalla
+    sottoscorta). Sconto Acquisto (AN), Sconto Vendita (AO) e Fattore di
+    RICARICO (AP), che usano questi due valori come base, seguono di
+    conseguenza gli stessi nuovi prezzi.
 """
 import argparse
 import csv
@@ -471,8 +477,11 @@ def build(input_dir, ref_dir, today=None):
 
         prezzo_acq_listino = parse_it_number(li.get("prezzo acquisto"))
         prezzo_ven_listino = parse_it_number(li.get("prezzo di vendita"))
-        prezzo_acq_scheda = parse_it_number(so.get("prezzo acquisto"))
-        prezzo_ven_scheda = parse_it_number(so.get("prezzo di vendita"))
+        # AJ/AK (e i calcoli a valle Sconto Acquisto/Sconto Vendita/Fattore di
+        # RICARICO che li usano come base) vengono presi dalla GIACENZA, non
+        # piu' dalla sottoscorta.
+        prezzo_acq_scheda = parse_it_number(get(grow, idx_g, "prezzo acquisto"))
+        prezzo_ven_scheda = parse_it_number(get(grow, idx_g, "prezzo di vendita"))
 
         sconto_acq = None
         if prezzo_acq_listino:
