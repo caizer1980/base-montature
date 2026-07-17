@@ -38,9 +38,21 @@ mano e non provengono da nessuno dei file quotidiani) vengono lette da
 --ref-dir e AGGIORNATE in automatico con i nuovi articoli trovati (lasciati
 vuoti, pronti per essere compilati):
     ref_fornitore2.csv        fornitore -> Fornitore 2
-    ref_marchi_attivi.csv     Marchio -> Marchi Attivi
     ref_articolo_manuale.csv  Codice a Barre -> Top, POSIZIONE GRIGLIA,
                                Occhiali con CLIP, Personale, scorta minima
+
+"Marchi Attivi" (colonna AG) NON e' piu' una tabella manuale: dal 17/07/2026
+si calcola automaticamente confrontando "Marchio" con due elenchi di marchi
+attivi, distinti per "Tipo Lenti" (vedi ref-dir):
+    ref_marchi_attivi_sole.csv   elenco marchi attivi per Tipo Lenti = sole
+    ref_marchi_attivi_vista.csv  elenco marchi attivi per Tipo Lenti = vista
+Se "Tipo Lenti" e' "sole" e il marchio e' nell'elenco sole (o "vista" e
+nell'elenco vista) -> "SI", altrimenti vuoto (comprese tutte le altre
+categorie di lenti: predisposti, clip-on, protettivi, nuoto, ecc., che non
+sono coperte da questi elenchi e restano sempre vuote). Il confronto ignora
+maiuscole/minuscole e spazi iniziali/finali. Per aggiornare gli elenchi
+attivi, sostituire semplicemente questi due file CSV (stessa struttura: una
+colonna "Marchio").
 
 NOTE / IPOTESI (confermate con Salvo il 14/07/2026):
   - Vengono escluse le combinazioni articolo+negozio con giacenza a ZERO e
@@ -208,6 +220,20 @@ def save_ref_csv(path, fieldnames, key_field, data):
             w.writerow({k: r.get(k, "") for k in fieldnames})
 
 
+def load_brand_set(path):
+    """Legge un CSV a una colonna 'Marchio' e ritorna un set di marchi
+    normalizzati (maiuscolo, senza spazi iniziali/finali). Usato per gli
+    elenchi 'Marchi Attivi' (sole/vista)."""
+    brands = set()
+    if os.path.exists(path):
+        with open(path, encoding="utf-8", newline="") as f:
+            for row in csv.DictReader(f):
+                v = (row.get("Marchio") or "").strip()
+                if v:
+                    brands.add(v.upper())
+    return brands
+
+
 # ---------------------------------------------------------------------------
 # COSTRUZIONE DEL FILE
 # ---------------------------------------------------------------------------
@@ -344,11 +370,11 @@ def build(input_dir, ref_dir, today=None):
     col_vendita_corr = f"Vendita {anno_corrente}"
 
     ref_fornitore2 = load_ref_csv(os.path.join(ref_dir, "ref_fornitore2.csv"), "fornitore")
-    ref_marchi_attivi = load_ref_csv(os.path.join(ref_dir, "ref_marchi_attivi.csv"), "Marchio")
     ref_articolo = load_ref_csv(os.path.join(ref_dir, "ref_articolo_manuale.csv"), "Codice a Barre")
+    marchi_attivi_sole = load_brand_set(os.path.join(ref_dir, "ref_marchi_attivi_sole.csv"))
+    marchi_attivi_vista = load_brand_set(os.path.join(ref_dir, "ref_marchi_attivi_vista.csv"))
 
     new_fornitori = [0]
-    new_marchi = [0]
     new_articoli = [0]
 
     def get_fornitore2(fornitore):
@@ -359,13 +385,14 @@ def build(input_dir, ref_dir, today=None):
             return ""
         return row.get("Fornitore 2", "")
 
-    def get_marchi_attivi(marchio):
-        row = ref_marchi_attivi.get(marchio)
-        if row is None:
-            ref_marchi_attivi[marchio] = {"Marchio": marchio, "Marchi Attivi": ""}
-            new_marchi[0] += 1
-            return ""
-        return row.get("Marchi Attivi", "")
+    def get_marchi_attivi(marchio, tipo_lenti):
+        m = (marchio or "").strip().upper()
+        t = (tipo_lenti or "").strip().lower()
+        if t == "sole" and m in marchi_attivi_sole:
+            return "SI"
+        if t == "vista" and m in marchi_attivi_vista:
+            return "SI"
+        return ""
 
     def get_articolo_manuale(barcode, marchio, modello):
         row = ref_articolo.get(barcode)
@@ -396,6 +423,7 @@ def build(input_dir, ref_dir, today=None):
         categoria = get(grow, idx_g, "categoria filtro")
         marchio = get(grow, idx_g, "Marchio")
         fornitore = get(grow, idx_g, "fornitore")
+        tipo_lenti = get(grow, idx_g, "Tipo Lenti")
 
         parts_cat = [x for x in (modello, colore, calibro, categoria) if x]
         parts_no_cat = [x for x in (modello, colore, calibro) if x]
@@ -455,7 +483,7 @@ def build(input_dir, ref_dir, today=None):
             "ponte": li.get("ponte") or so.get("ponte") or "",
             "materiale": get(grow, idx_g, "materiale"),
             "utente": get(grow, idx_g, "utente"),
-            "Tipo Lenti": get(grow, idx_g, "Tipo Lenti"),
+            "Tipo Lenti": tipo_lenti,
             "Filiale": FILIALI[fil_code],
             "Filiale BIS": FILIALI[fil_code],
             "quantita magazzino": q_mag,
@@ -472,7 +500,7 @@ def build(input_dir, ref_dir, today=None):
             "Categoria Filtro": categoria,
             "POSIZIONE GRIGLIA": manual.get("POSIZIONE GRIGLIA", ""),
             "Top": manual.get("Top", ""),
-            "Marchi Attivi": get_marchi_attivi(marchio),
+            "Marchi Attivi": get_marchi_attivi(marchio, tipo_lenti),
             "Occhiali con CLIP": manual.get("Occhiali con CLIP", ""),
             "Personale": manual.get("Personale", ""),
             "Prezzo Di Acquisto Scheda Scontato": prezzo_acq_scheda,
@@ -494,7 +522,6 @@ def build(input_dir, ref_dir, today=None):
 
     os.makedirs(ref_dir, exist_ok=True)
     save_ref_csv(os.path.join(ref_dir, "ref_fornitore2.csv"), ["fornitore", "Fornitore 2"], "fornitore", ref_fornitore2)
-    save_ref_csv(os.path.join(ref_dir, "ref_marchi_attivi.csv"), ["Marchio", "Marchi Attivi"], "Marchio", ref_marchi_attivi)
     save_ref_csv(
         os.path.join(ref_dir, "ref_articolo_manuale.csv"),
         ["Codice a Barre", "Marchio", "modello", "Top", "POSIZIONE GRIGLIA", "Occhiali con CLIP", "Personale", "scorta minima"],
@@ -503,8 +530,9 @@ def build(input_dir, ref_dir, today=None):
 
     print(
         f"Fatto. Righe: {len(out_rows)}. Nuovi fornitori: {new_fornitori[0]}, "
-        f"nuovi marchi: {new_marchi[0]}, nuovi articoli: {new_articoli[0]} "
-        f"(aggiunti vuoti nelle tabelle di riferimento, da compilare).",
+        f"nuovi articoli: {new_articoli[0]} "
+        f"(aggiunti vuoti nelle tabelle di riferimento, da compilare). "
+        f"Marchi attivi: {len(marchi_attivi_sole)} sole, {len(marchi_attivi_vista)} vista.",
         file=sys.stderr,
     )
     return columns, out_rows

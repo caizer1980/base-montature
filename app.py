@@ -397,7 +397,7 @@ if st.button("🔄 Genera file di oggi", type="primary"):
 
             # tabelle di riferimento: se non esistono ancora su Dropbox, si
             # creano vuote al primo avvio (build() le popola comunque)
-            for fname in ("ref_fornitore2.csv", "ref_marchi_attivi.csv", "ref_articolo_manuale.csv"):
+            for fname in ("ref_fornitore2.csv", "ref_marchi_attivi_sole.csv", "ref_marchi_attivi_vista.csv", "ref_articolo_manuale.csv"):
                 dropbox_download(dbx, f"{ref_subpath}/{fname}", os.path.join(ref_dir, fname))
 
             with st.spinner("Genero il file (può richiedere qualche minuto)..."):
@@ -406,7 +406,7 @@ if st.button("🔄 Genera file di oggi", type="primary"):
                 etl.write_xlsx(columns, rows, out_path)
 
             with st.spinner("Salvo le tabelle di riferimento aggiornate su Dropbox..."):
-                for fname in ("ref_fornitore2.csv", "ref_marchi_attivi.csv", "ref_articolo_manuale.csv"):
+                for fname in ("ref_fornitore2.csv", "ref_marchi_attivi_sole.csv", "ref_marchi_attivi_vista.csv", "ref_articolo_manuale.csv"):
                     local = os.path.join(ref_dir, fname)
                     if os.path.exists(local):
                         dropbox_upload(dbx, local, f"{ref_subpath}/{fname}")
