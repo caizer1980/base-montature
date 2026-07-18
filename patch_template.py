@@ -97,6 +97,9 @@ def build_sheet_data_xml(columns, rows, row1_xml, date_style, price_style, pct_s
     }
     pct_cols = {"Sconto Acquisto", "Sconto Vendita"}
     ricarico_cols = {"Fattore di RICARICO (su prezzi scontati)"}
+    # Sempre testo, anche se il valore fosse numerico: preserva gli zeri
+    # iniziali dei codici a barre.
+    force_text_cols = {"Codice a Barre", "ID_GIACENZA"}
 
     style_by_col = {}
     for i, name in enumerate(columns):
@@ -123,7 +126,7 @@ def build_sheet_data_xml(columns, rows, row1_xml, date_style, price_style, pct_s
                 if serial is None:
                     continue
                 cells.append(f'<c r="{ref}"{s_attr}><v>{serial}</v></c>')
-            elif isinstance(val, (int, float)):
+            elif name not in force_text_cols and isinstance(val, (int, float)):
                 cells.append(f'<c r="{ref}"{s_attr}><v>{val}</v></c>')
             else:
                 text = xml_escape(str(val))

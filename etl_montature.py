@@ -279,6 +279,20 @@ def clean_modello_rayban(marchio, modello):
     return cleaned
 
 
+def normalize_filiale(code):
+    """Alcuni export scrivono il codice filiale con uno zero iniziale
+    spurio (es. 'Z' diventa '0Z'). Se il codice letto non e' tra quelli
+    validi (FILIALI) ma lo diventa togliendo lo zero iniziale, usa la
+    versione senza zero. Applicata sia alla GIACENZA sia alle VENDITE,
+    che devono combaciare per fare il join corretto per filiale."""
+    c = "" if code is None else str(code).strip()
+    if c in FILIALI:
+        return c
+    if c.startswith("0") and c[1:] in FILIALI:
+        return c[1:]
+    return c
+
+
 def get_occhiali_clip(tipo_lenti, colonna_g):
     """Colonna AH ('Occhiali con CLIP'): 'SI' solo se Tipo Lenti = VISTA e la
     colonna G ('Modello + Colore + Calibro + CAT', gia' costruita) contiene
@@ -313,7 +327,8 @@ def build(input_dir, ref_dir, today=None):
     giac_rows = []
     barcodes_rilevanti = set()
     for row in reader_g:
-        fil_code = row[idx_g["filiale"]]
+        fil_code = normalize_filiale(row[idx_g["filiale"]])
+        row[idx_g["filiale"]] = fil_code  # cosi' anche le letture successive vedono il valore normalizzato
         if fil_code not in FILIALI:
             continue
         giac_rows.append(row)
@@ -400,6 +415,9 @@ def build(input_dir, ref_dir, today=None):
         fil = vget(row, "Filiale")
         if not bc or not fil:
             continue
+        # stesso codice filiale della giacenza (es. eventuale "0Z" -> "Z"),
+        # altrimenti il join per filiale con la giacenza non combacia.
+        fil = normalize_filiale(fil)
         d = vget(row, "Data")
         if d is None:
             continue
@@ -470,7 +488,9 @@ def build(input_dir, ref_dir, today=None):
     out_rows = []
     for grow in giac_rows:
         fil_code = get(grow, idx_g, "filiale")
-        barcode = get(grow, idx_g, "codice a barre")
+        # Sempre testo: alcuni codici a barre hanno zeri iniziali che vanno
+        # persi se il valore viene trattato/scritto come numero.
+        barcode = str(get(grow, idx_g, "codice a barre") or "")
         if not barcode:
             continue
 
