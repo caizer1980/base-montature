@@ -90,6 +90,12 @@ REGOLE FISSE (confermate con Salvo il 17/07/2026):
     (anche insieme ad altre parole, es. "CLIP-ON"), altrimenti vuoto.
   - Sconto Acquisto (AN) e Sconto Vendita (AO) = valori interi arrotondati
     (nessun decimale). Fattore di RICARICO (AP) = arrotondato a un decimale.
+  - "codice a barre" e' sempre trattato come TESTO (mai come numero), sia
+    nella colonna "Codice a Barre"/ID_GIACENZA sia nel join GIACENZA <->
+    VENDITE: se una delle due colonne fosse letta come numero (perche' il
+    file sorgente ha quella colonna formattata cosi') il confronto non
+    combacerebbe mai e le vendite risulterebbero azzerate. Vedi
+    normalize_barcode().
 """
 import argparse
 import csv
@@ -293,6 +299,23 @@ def normalize_filiale(code):
     return c
 
 
+def normalize_barcode(v):
+    """Normalizza un 'codice a barre' letto da un file qualsiasi (TSV o
+    xlsx) sempre come TESTO, cosi' il join tra GIACENZA e VENDITE combacia
+    a prescindere da come Excel ha formattato la colonna nel file sorgente
+    (se una delle due venisse letta come numero invece che come stringa,
+    l'altra non la troverebbe mai). Gestisce anche il caso in cui openpyxl
+    ritorni un float per una colonna numerica (es. 805289307693.0), senza
+    lasciare l'inutile '.0' finale."""
+    if v is None:
+        return ""
+    if isinstance(v, float):
+        if v.is_integer():
+            return str(int(v))
+        return str(v)
+    return str(v).strip()
+
+
 def get_occhiali_clip(tipo_lenti, colonna_g):
     """Colonna AH ('Occhiali con CLIP'): 'SI' solo se Tipo Lenti = VISTA e la
     colonna G ('Modello + Colore + Calibro + CAT', gia' costruita) contiene
@@ -331,6 +354,7 @@ def build(input_dir, ref_dir, today=None):
         row[idx_g["filiale"]] = fil_code  # cosi' anche le letture successive vedono il valore normalizzato
         if fil_code not in FILIALI:
             continue
+        row[idx_g["codice a barre"]] = normalize_barcode(row[idx_g["codice a barre"]])
         giac_rows.append(row)
         barcodes_rilevanti.add(row[idx_g["codice a barre"]])
     fh_g.close()
@@ -340,7 +364,7 @@ def build(input_dir, ref_dir, today=None):
     listini_by_barcode = {}
     idx_l, reader_l, fh_l = iter_tsv(p("listini"))
     for row in reader_l:
-        bc = row[idx_l["codice a barre"]]
+        bc = normalize_barcode(row[idx_l["codice a barre"]])
         if bc in barcodes_rilevanti:
             listini_by_barcode[bc] = {
                 "SKU": get(row, idx_l, "SKU"),
@@ -355,7 +379,7 @@ def build(input_dir, ref_dir, today=None):
     sottoscorta_by_barcode = {}
     idx_s, reader_s, fh_s = iter_tsv(p("sottoscorta"))
     for row in reader_s:
-        bc = row[idx_s["codice a barre"]]
+        bc = normalize_barcode(row[idx_s["codice a barre"]])
         if bc in barcodes_rilevanti:
             sottoscorta_by_barcode[bc] = {
                 "SKU": get(row, idx_s, "SKU"),
@@ -372,7 +396,7 @@ def build(input_dir, ref_dir, today=None):
     data_ultimo_acquisto = {}
     idx_m, reader_m, fh_m = iter_tsv(p("movimenti"))
     for row in reader_m:
-        bc = get(row, idx_m, "codice a barre")
+        bc = normalize_barcode(get(row, idx_m, "codice a barre"))
         if bc not in barcodes_rilevanti:
             continue
         if get(row, idx_m, "tipo operazione") != "ACQ":
@@ -415,6 +439,9 @@ def build(input_dir, ref_dir, today=None):
         fil = vget(row, "Filiale")
         if not bc or not fil:
             continue
+        # sempre testo, come il codice a barre della giacenza: se una delle
+        # due colonne fosse letta come numero il join non combacerebbe mai.
+        bc = normalize_barcode(bc)
         # stesso codice filiale della giacenza (es. eventuale "0Z" -> "Z"),
         # altrimenti il join per filiale con la giacenza non combacia.
         fil = normalize_filiale(fil)
@@ -488,9 +515,11 @@ def build(input_dir, ref_dir, today=None):
     out_rows = []
     for grow in giac_rows:
         fil_code = get(grow, idx_g, "filiale")
-        # Sempre testo: alcuni codici a barre hanno zeri iniziali che vanno
-        # persi se il valore viene trattato/scritto come numero.
-        barcode = str(get(grow, idx_g, "codice a barre") or "")
+        # Sempre testo (stessa regola usata lato VENDITE): alcuni codici a
+        # barre hanno zeri iniziali che vanno persi se il valore viene
+        # trattato/scritto come numero, e deve combaciare col codice a
+        # barre letto dal file vendite per fare correttamente il join.
+        barcode = normalize_barcode(get(grow, idx_g, "codice a barre"))
         if not barcode:
             continue
 
