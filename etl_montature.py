@@ -96,6 +96,8 @@ REGOLE FISSE (confermate con Salvo il 17/07/2026):
     file sorgente ha quella colonna formattata cosi') il confronto non
     combacerebbe mai e le vendite risulterebbero azzerate. Vedi
     normalize_barcode().
+  - Le righe con "fornitore" vuoto (campo GIACENZA) vengono escluse dal
+    file finale.
 """
 import argparse
 import csv
@@ -533,6 +535,10 @@ def build(input_dir, ref_dir, today=None):
         marchio = get(grow, idx_g, "Marchio")
         fornitore = get(grow, idx_g, "fornitore")
         tipo_lenti = get(grow, idx_g, "Tipo Lenti")
+
+        # Escludi le righe senza fornitore (campo vuoto in GIACENZA).
+        if not fornitore.strip():
+            continue
 
         # Ray-Ban: rimuovi SOLE/VISTA/SUN/OPTICAL dal modello PRIMA di
         # costruire le colonne G/H/I (che usano "modello").
