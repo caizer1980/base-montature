@@ -98,6 +98,8 @@ REGOLE FISSE (confermate con Salvo il 17/07/2026):
     normalize_barcode().
   - Le righe con "fornitore" vuoto (campo GIACENZA) vengono escluse dal
     file finale.
+  - Le righe con "modello" vuoto (campo GIACENZA) vengono escluse dal
+    file finale.
 """
 import argparse
 import csv
@@ -538,6 +540,9 @@ def build(input_dir, ref_dir, today=None):
 
         # Escludi le righe senza fornitore (campo vuoto in GIACENZA).
         if not fornitore.strip():
+            continue
+        # Escludi le righe senza modello (campo vuoto in GIACENZA).
+        if not modello.strip():
             continue
 
         # Ray-Ban: rimuovi SOLE/VISTA/SUN/OPTICAL dal modello PRIMA di
