@@ -33,6 +33,7 @@ import io
 import os
 import tempfile
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import requests
 import streamlit as st
@@ -352,6 +353,44 @@ def dropbox_upload(dbx, local_path, dropbox_path):
 
 
 # ---------------------------------------------------------------------------
+# DATA DI AGGIORNAMENTO DEI FILE SORGENTE — mostrata in pagina cosi' si vede
+# a colpo d'occhio quanto sono "freschi" i file prima di generare la base.
+# ---------------------------------------------------------------------------
+
+FILE_LABELS = {
+    "giacenza": "Giacenza",
+    "listini": "Listini",
+    "sottoscorta": "Sottoscorta",
+    "movimenti": "Movimenti Acquisto",
+    "vendite": "Vendite",
+}
+
+
+def format_it_datetime(ts):
+    if ts is None:
+        return "non disponibile"
+    try:
+        local = ts.replace(tzinfo=dt.timezone.utc).astimezone(ZoneInfo("Europe/Rome"))
+        return local.strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return ts.strftime("%d/%m/%Y %H:%M")
+
+
+def get_file_dates(dbx):
+    """Legge solo i metadati (non scarica i file) di ognuno dei 5 file
+    sorgente, per mostrare in pagina quando sono stati aggiornati l'ultima
+    volta su Dropbox."""
+    dates = {}
+    for key, info in etl.FILES.items():
+        try:
+            md = dbx.files_get_metadata(info["dropbox_path"])
+            dates[key] = getattr(md, "client_modified", None) or getattr(md, "server_modified", None)
+        except Exception:
+            dates[key] = None
+    return dates
+
+
+# ---------------------------------------------------------------------------
 # GENERAZIONE FILE
 # ---------------------------------------------------------------------------
 
@@ -415,6 +454,16 @@ st.write(
     "Genera il file aggiornato a oggi leggendo giacenza, vendite, listini e "
     "movimenti direttamente dalla cartella Dropbox."
 )
+
+with st.spinner("Controllo la data di aggiornamento dei file sorgente..."):
+    _dbx_check = get_dropbox_client()
+    _file_dates = get_file_dates(_dbx_check)
+
+righe_date = "\n".join(
+    f"- **{FILE_LABELS.get(key, key)}**: {format_it_datetime(_file_dates.get(key))}"
+    for key in etl.FILES
+)
+st.markdown("**Ultimo aggiornamento dei file sorgente:**\n\n" + righe_date)
 
 if st.button("🔄 Genera file di oggi", type="primary"):
     with st.spinner("Scarico i file sorgente da Dropbox..."):
