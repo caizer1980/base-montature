@@ -74,10 +74,14 @@ REGOLE FISSE (confermate con Salvo il 17/07/2026):
     parole SOLE, VISTA, SUN, OPTICAL (senza lasciare lo spazio prima), PRIMA
     di calcolare le colonne G/H/I ("Modello + Colore + Calibro..."). Altri
     marchi simili (es. "Ray-Ban Junior", "Ray-ban Meta") non sono toccati.
-  - "data ult acquisto" (colonna AA) = presa direttamente dal campo
-    "data ult. acquisto" della GIACENZA (non piu' calcolata da MOVIMENTI).
-  - "data" (colonna AB) = calcolata da MOVIMENTI ACQUISTO.txt come data piu'
-    recente (tipo operazione = ACQ) per lo stesso codice a barre.
+  - "Data Acq. Scheda Focus" (colonna AA) = presa direttamente dal campo
+    "data ult. acquisto" della GIACENZA (non calcolata da MOVIMENTI).
+  - "data ult acquisto da movimenti" (colonna AB) = calcolata da MOVIMENTI
+    ACQUISTO.txt come data piu' recente (tipo operazione = ACQ) per lo
+    stesso codice a barre.
+  - "data ult vendita" (colonna AC) = presa direttamente dal campo
+    "data ult. vendita" della GIACENZA (non piu' calcolata dal file
+    VENDITE).
   - "Prezzo Di Acquisto Scheda Scontato" (colonna AJ) e "Prezzo Di Vendita
     Scheda Scontato" (colonna AK) = presi direttamente dai campi "prezzo
     acquisto" e "prezzo di vendita" della GIACENZA (non piu' dalla
@@ -174,7 +178,7 @@ OUTPUT_COLUMNS = [
     "Filiale", "Filiale BIS", "quantita magazzino", "Quantita Disponibile",
     "quantita in arrivo", "scorta minima",
     None, None, None, None,  # colonne vendite per anno, nomi dinamici (vedi build)
-    "data ult acquisto", "data", "data ult vendita", "Categoria Filtro",
+    "Data Acq. Scheda Focus", "data ult acquisto da movimenti", "data ult vendita", "Categoria Filtro",
     "POSIZIONE GRIGLIA", "Top", "Marchi Attivi", "Occhiali con CLIP", "Personale",
     "Prezzo Di Acquisto Scheda Scontato", "Prezzo Di Vendita Scheda Scontato",
     "Prezzo Acquisto Listino Intero", "Prezzo Vendita Listino Intero",
@@ -461,6 +465,10 @@ def build(input_dir, ref_dir, today=None):
         n_vendite += 1
         key = (bc, fil, d.year)
         vendite_qta[key] += qta
+        # NB: dal 20/07/2026 "data ult vendita" (colonna AC) viene presa
+        # direttamente dalla GIACENZA, non piu' da qui: ultima_vendita non
+        # e' piu' usata nella riga di output, la teniamo solo per eventuali
+        # controlli futuri.
         cur = ultima_vendita.get((bc, fil))
         if cur is None or d > cur:
             ultima_vendita[(bc, fil)] = d
@@ -627,9 +635,9 @@ def build(input_dir, ref_dir, today=None):
             col_vendita_prec: v_precedente or "",
             col_vendita_prec_cum: vendite_qta_cumulato.get((barcode, fil_code)) or "",
             col_vendita_corr: v_corrente or "",
-            "data ult acquisto": parse_it_date(get(grow, idx_g, "data ult. acquisto")),
-            "data": data_ultimo_acquisto.get(barcode),
-            "data ult vendita": ultima_vendita.get((barcode, fil_code)),
+            "Data Acq. Scheda Focus": parse_it_date(get(grow, idx_g, "data ult. acquisto")),
+            "data ult acquisto da movimenti": data_ultimo_acquisto.get(barcode),
+            "data ult vendita": parse_it_date(get(grow, idx_g, "data ult. vendita")),
             "Categoria Filtro": categoria,
             "POSIZIONE GRIGLIA": manual.get("POSIZIONE GRIGLIA", ""),
             "Top": manual.get("Top", ""),
