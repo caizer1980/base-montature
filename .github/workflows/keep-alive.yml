@@ -1,0 +1,27 @@
+name: Keep Base Montature awake
+
+on:
+  schedule:
+    # Ogni 4 ore, tutti i giorni. Un run pubblico su GitHub Actions e'
+    # gratuito e senza limiti di minuti.
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Visita l'app per tenerla sveglia
+        run: python .github/scripts/keep_alive.py
