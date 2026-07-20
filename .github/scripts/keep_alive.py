@@ -11,6 +11,16 @@ imposta un cookie di sessione e fa un redirect verso l'app vera. Un client
 HTTP che non segue i redirect e non gestisce i cookie resta bloccato la'
 e non arriva mai a caricare davvero l'app.
 
+Il titolo della pagina risulta sempre corretto (il documento HTML statico
+arriva sempre), ma in alcuni run il form di login (componente React dentro
+l'app Streamlit) non compare mai entro il timeout: probabile blocco/rallentamento
+della connessione WebSocket da parte di sistemi anti-bot davanti a Streamlit
+Cloud, che riconoscono le impronte tipiche di Chromium headless pilotato da
+automazione (navigator.webdriver, User-Agent "HeadlessChrome", ecc.). Per
+questo il browser viene lanciato con alcuni accorgimenti per sembrare un
+normale browser reale, e in caso di fallimento vengono salvati screenshot e
+log di rete/console utili per la diagnosi.
+
 Eseguito periodicamente da .github/workflows/keep-alive.yml.
 """
 import sys
@@ -19,11 +29,52 @@ from playwright.sync_api import sync_playwright
 
 APP_URL = "https://base-montature-lzjoekyrfzydkhtxm2vpst.streamlit.app/"
 
+REAL_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
 
 def main():
     with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
+        browser = p.chromium.launch(
+            args=[
+                "--disable-blink-features=AutomationControlled",
+            ]
+        )
+        context = browser.new_context(
+            user_agent=REAL_USER_AGENT,
+            locale="it-IT",
+            viewport={"width": 1366, "height": 900},
+        )
+        # Rimuove l'impronta piu' comune usata dai sistemi anti-bot per
+        # riconoscere Chromium pilotato da automazione.
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        )
+        page = context.new_page()
+
+        # Log di diagnosi: richieste di rete fallite e messaggi di errore in
+        # console, utili se il form di login non dovesse comparire.
+        page.on(
+            "requestfailed",
+            lambda req: print(
+                f"[network] FALLITA: {req.method} {req.url} -> {req.failure}"
+            ),
+        )
+        page.on(
+            "console",
+            lambda msg: print(f"[console:{msg.type}] {msg.text}")
+            if msg.type in ("error", "warning")
+            else None,
+        )
+        page.on(
+            "response",
+            lambda res: print(f"[response] {res.status} {res.url}")
+            if res.status >= 400
+            else None,
+        )
+
         # Il risveglio a freddo di un'app Streamlit Cloud rimasta addormentata
         # per giorni puo' richiedere diversi minuti (ricreazione del container,
         # reinstallazione delle dipendenze, boot dell'app): timeout molto
@@ -55,11 +106,21 @@ def main():
             page.wait_for_selector("text=Codice utente", timeout=SELECTOR_TIMEOUT_MS)
         except Exception:
             title = page.title()
-            content = page.content()
-            browser.close()
             print(f"ERRORE: non ho trovato il form di login entro {SELECTOR_TIMEOUT_MS // 1000}s.")
             print(f"Titolo pagina: {title}")
-            print(content[:2000])
+            try:
+                page.screenshot(path="failure.png", full_page=True)
+                print("Screenshot salvato in failure.png (vedi artifact del workflow).")
+            except Exception as e:
+                print(f"Impossibile salvare lo screenshot: {e}")
+            body_text = ""
+            try:
+                body_text = page.inner_text("body")
+            except Exception:
+                pass
+            print("--- Testo visibile nel <body> al momento del timeout ---")
+            print(body_text[:3000] if body_text else "(vuoto)")
+            browser.close()
             sys.exit(1)
 
         title = page.title()
