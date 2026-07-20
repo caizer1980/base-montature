@@ -24,10 +24,13 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.set_default_timeout(60000)
+        # Il risveglio a freddo di un'app Streamlit Cloud addormentata puo'
+        # richiedere piu' di un minuto (boot del container + bundle JS):
+        # timeout generosi per non fallire inutilmente.
+        page.set_default_timeout(150000)
 
         print(f"Apro {APP_URL} ...")
-        page.goto(APP_URL, wait_until="domcontentloaded", timeout=60000)
+        page.goto(APP_URL, wait_until="domcontentloaded", timeout=90000)
 
         # Se l'app risultasse comunque addormentata, Streamlit mostra una
         # pagina con un pulsante per il risveglio manuale: lo clicchiamo
@@ -42,9 +45,10 @@ def main():
 
         # Aspetta che compaia il form di login della nostra app (prova che
         # il caricamento e' arrivato fino in fondo, non fermato al cancello
-        # di autenticazione di Streamlit).
+        # di autenticazione di Streamlit). Timeout ampio per coprire un
+        # risveglio a freddo completo del container.
         try:
-            page.wait_for_selector("text=Codice utente", timeout=60000)
+            page.wait_for_selector("text=Codice utente", timeout=150000)
         except Exception:
             title = page.title()
             content = page.content()
