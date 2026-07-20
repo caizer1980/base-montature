@@ -390,6 +390,37 @@ def get_file_dates(dbx):
     return dates
 
 
+# Quanto puo' essere "vecchio" (in giorni rispetto a oggi) ogni file prima di
+# mostrare un avviso in pagina. 0 = deve risultare aggiornato a oggi stesso,
+# 1 = puo' essere vecchio al massimo di ieri. None = nessun controllo (la
+# SOTTOSCORTA si aggiorna raramente, e' normale che non sia di oggi).
+FILE_MAX_AGE_DAYS = {
+    "giacenza": 0,
+    "listini": 1,
+    "sottoscorta": None,
+    "movimenti": 0,
+    "vendite": 0,
+}
+
+
+def file_e_vecchio(key, ts):
+    """True se il file 'key' risulta piu' vecchio della soglia consentita
+    (vedi FILE_MAX_AGE_DAYS), confrontando le sole date (fuso Europe/Rome),
+    non gli orari."""
+    max_age_days = FILE_MAX_AGE_DAYS.get(key)
+    if max_age_days is None or ts is None:
+        return False
+    try:
+        data_file = ts.replace(tzinfo=dt.timezone.utc).astimezone(ZoneInfo("Europe/Rome")).date()
+    except Exception:
+        data_file = ts.date() if hasattr(ts, "date") else None
+    if data_file is None:
+        return False
+    oggi = dt.datetime.now(ZoneInfo("Europe/Rome")).date()
+    soglia = oggi - dt.timedelta(days=max_age_days)
+    return data_file < soglia
+
+
 # ---------------------------------------------------------------------------
 # GENERAZIONE FILE
 # ---------------------------------------------------------------------------
@@ -459,10 +490,15 @@ with st.spinner("Controllo la data di aggiornamento dei file sorgente..."):
     _dbx_check = get_dropbox_client()
     _file_dates = get_file_dates(_dbx_check)
 
-righe_date = "\n".join(
-    f"- **{FILE_LABELS.get(key, key)}**: {format_it_datetime(_file_dates.get(key))}"
-    for key in etl.FILES
-)
+def _riga_data_file(key):
+    ts = _file_dates.get(key)
+    riga = f"- **{FILE_LABELS.get(key, key)}**: {format_it_datetime(ts)}"
+    if file_e_vecchio(key, ts):
+        riga += "  ⚠️ *file non aggiornato*"
+    return riga
+
+
+righe_date = "\n".join(_riga_data_file(key) for key in etl.FILES)
 st.markdown("**Ultimo aggiornamento dei file sorgente:**\n\n" + righe_date)
 
 if st.button("🔄 Genera file di oggi", type="primary"):
