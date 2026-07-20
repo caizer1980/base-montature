@@ -27,10 +27,11 @@ jobs:
       - name: Visita l'app per tenerla sveglia
         run: python .github/scripts/keep_alive.py
 
-      - name: Carica screenshot di diagnosi (solo se fallisce)
-        if: failure()
+      - name: Carica screenshot di diagnosi (se presente)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: failure-screenshot
           path: failure.png
           retention-days: 7
+          if-no-files-found: ignore
